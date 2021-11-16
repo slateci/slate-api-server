@@ -1,5 +1,5 @@
 Name: aws-sdk-cpp
-Version: 1.5.25
+Version: 1.9.145
 Release: 1%{?dist}
 Summary: AWS C++ SDK
 License: MIT
@@ -8,7 +8,7 @@ URL: https://github.com/aws/aws-sdk-cpp
 # curl -L https://github.com/aws/aws-sdk-cpp/archive/1.5.25.tar.gz -o aws-sdk-cpp-1.5.25.tar.gz
 Source: %{name}-%{version}.tar.gz
 
-BuildRequires: gcc-c++ cmake3
+BuildRequires: gcc-c++ cmake3 zlib zlib-devel openssl openssl-devel curl curl-devel
 
 %description
 Amazon AWS SDK for C++

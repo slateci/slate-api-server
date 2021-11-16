@@ -1,51 +1,69 @@
 #!/bin/sh
 
-set -e
+set -xe
+
+usage () {
+  echo "Invalid arguments, must use: "
+  echo "$0 (binary|source|all) [working_dir]"
+  exit 1
+}
 
 PKG_NAME="slate-api-server-0.1.0"
 PKG_SHORT_NAME="slate-api-server"
-mkdir -p "${CMAKE_BINARY_DIR}/SOURCES"
-
-rm -rf "${CMAKE_BINARY_DIR}/SOURCES/${PKG_SHORT_NAME}" "${CMAKE_BINARY_DIR}/SOURCES/${PKG_NAME}.tar.gz"
-
-# Get a clean copy of the source tree into a tarball
-if which svn > /dev/null 2>&1 && svn info "${CMAKE_SOURCE_DIR}" > /dev/null 2>&1 ; then
-	svn export -q "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/SOURCES/${PKG_SHORT_NAME}"
-	tar czf "${CMAKE_BINARY_DIR}/SOURCES/${PKG_NAME}.tar.gz" --exclude "${PKG_SHORT_NAME}/\.*" \
-	    -C "${CMAKE_BINARY_DIR}/SOURCES" "${PKG_SHORT_NAME}"
-elif which git > /dev/null 2>&1 && [ -d "${CMAKE_SOURCE_DIR}/.git" ] ; then
-	SRC_DIR_NAME=$(basename "${CMAKE_SOURCE_DIR}")
-	git clone "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/SOURCES/${PKG_SHORT_NAME}"
-	tar czf "${CMAKE_BINARY_DIR}/SOURCES/${PKG_NAME}.tar.gz" -C "${CMAKE_BINARY_DIR}/SOURCES" \
-	    --exclude "${PKG_SHORT_NAME}/\.*" "${PKG_SHORT_NAME}"
-else
-	SRC_DIR_NAME=$(basename "${CMAKE_SOURCE_DIR}")
-	# $CMAKE_BINARY_DIR might be inside $CMAKE_SOURCE_DIR, so we need to exclude it from the tarball
-	# To do that, we need to figure out its name realtive to $CMAKE_SOURCE_DIR. We can do that by
-	# checking whether $CMAKE_SOURCE_DIR is a prefix of $CMAKE_BINARY_DIR, but we must take care to
-	# ensure that the prefix we use for checking ends with a slash to avoid being fooled by
-	# stuff/package being a prefix of stuff/package_build or similar. 
-	DIR_PREFIX="${CMAKE_SOURCE_DIR}"
-	if echo "${DIR_PREFIX}" | grep -q "[^/]$"; then
-		# append a slash if one was not already there
-		DIR_PREFIX="${DIR_PREFIX}/"
-	fi
-	# Now compute the part of $CMAKE_BINARY_DIR which remains after eliminating any $DIR_PREFIX prefix
-	# TODO: this will fail in exciting ways if DIR_PREFIX contains '|' or other characters which are 
-	#       special to sed
-	RELATIVE_BUILD_DIR=$(echo "${CMAKE_BINARY_DIR}" | sed 's|^'"${DIR_PREFIX}"'||')
-	# We are now ready to build a temporary file of exclusion patterns for tar
-	# TODO: this will be too broad if $RELATIVE_BUILD_DIR contains '.' or other characters which are 
-	#       special to tar's pattern interpretation
-	echo "${SRC_DIR_NAME}/${RELATIVE_BUILD_DIR}" > export_exclusions
-	echo "${SRC_DIR_NAME}/\.*" >> export_exclusions
-	echo "\.DS_Store" >> export_exclusions
-	# Note: running this on darwin leaves lots of ._ clutter, but this shouldn't matter as rpmbuild 
-	#       should only be relevant on linux. Emacs/vim clutter might be a problem, however. 
-	tar czf "${CMAKE_BINARY_DIR}/SOURCES/${PKG_NAME}.tar.gz" -C "${CMAKE_SOURCE_DIR}/.." \
-	    -X export_exclusions "${SRC_DIR_NAME}"
-	rm export_exclusions
+GIT_REPO="https://github.com/slateci/slate-api-server.git"
+# might be able to use a later sdk version but better not to risk it
+AWS_SDK_LOCATION="https://codeload.github.com/aws/aws-sdk-cpp/tar.gz/refs/tags/1.5.25"                                                                     
+#AWS_SDK_LOCATION="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.5.25.tar.gz" 
+if [ -z "$1" ];
+then
+  usage 
 fi
 
+if [ "$1" == "all" ];
+then
+  RPMBUILD_COMMAND="-ba" # build all rpm types (source, binary)
+elif [ "$1" == "binary" ];
+then
+  RPMBUILD_COMMAND="-bb" # build binary rpms
+elif [ "$1" == "source" ];
+then
+  RPMBUILD_COMMAND="-bs" # build source rpms
+else
+  usage
+fi
+
+if [ -z  "${CMAKE_BINARY_DIR}" ]; 
+then
+  WORKDIR=$2
+else 
+  WORKDIR=${CMAKE_BINARY_DIR}
+fi
+
+if [ -z "$WORKDIR" ];
+then
+  echo "Must provide CMAKE_BINARY_DIR or pass in a working directory as an argument"
+  exit 1
+fi
+
+
+mkdir -p "${WORKDIR}/SOURCES"
+
+rm -rf "${WORKDIR}/SOURCES/${PKG_SHORT_NAME}" "${WORKDIR}/SOURCES/${PKG_NAME}.tar.gz"
+
+# Get a clean copy of the source tree into a tarball
+git clone "${GIT_REPO}" "${WORKDIR}/SOURCES/${PKG_SHORT_NAME}"
+tar czf "${WORKDIR}/SOURCES/${PKG_NAME}.tar.gz" -C "${WORKDIR}/SOURCES"  --exclude "${PKG_SHORT_NAME}/\.*" "${PKG_SHORT_NAME}"
+
+# Install aws sdk
+# need to clone the git repo with recursive and then install the right tag
+cur_dir=`pwd`
+cd ${WORKDIR}/SOURCES/
+git clone -b 1.9.145 https://github.com/aws/aws-sdk-cpp.git --recursive
+cd aws-sdk-cpp
+mv aws-sdk-cpp aws-sdk-cpp-1.9.145
+tar cvzf aws-sdk-cpp-1.5.25.tar.gz aws-sdk-cpp-1.5.25
+cd $cur_dir
+
 # Exceuting rpmbuild
-rpmbuild --define "_topdir ${CMAKE_BINARY_DIR}" -ba "${CMAKE_SOURCE_DIR}/resources/rpm_specs/slate-api-server.spec"
+rpmbuild --define "_topdir ${WORKDIR}" $RPMBUILD_COMMAND "${WORKDIR}/SOURCES/${PKG_SHORT_NAME}/resources/rpm_specs/aws-sdk-cpp.spec"
+rpmbuild --define "_topdir ${WORKDIR}" $RPMBUILD_COMMAND "${WORKDIR}/SOURCES/${PKG_SHORT_NAME}/resources/rpm_specs/slate-api-server.spec"

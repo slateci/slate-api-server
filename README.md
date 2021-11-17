@@ -1,3 +1,5 @@
+## This code is superseded by the [slate-client-server repository](https://github.com/slateci/slate-client-server).  Do not use for production
+
 Dependencies
 ============
 - CMake
